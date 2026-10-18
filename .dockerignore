@@ -1,0 +1,10 @@
+node_modules
+.nuxt
+.output
+.data
+.git
+backend
+data
+deploy
+.env
+.env.*
