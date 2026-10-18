@@ -34,7 +34,7 @@ code { background: var(--bg); border: 1px solid var(--border); border-radius: 4p
 
 .container { max-width: 900px; margin: 0 auto; padding: 0 16px; }
 .stack { display: grid; gap: 1.5rem; padding-top: 2rem; padding-bottom: 3rem; }
-.stack-sm { display: grid; gap: .75rem; }
+.stack-sm { display: grid; gap: .75rem; align-content: start; }
 .grid-2 { display: grid; gap: 1.5rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
 .row-between { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
 
