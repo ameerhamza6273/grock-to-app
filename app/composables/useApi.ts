@@ -5,7 +5,9 @@ export function useApi() {
   const base = useRuntimeConfig().public.apiBase.replace(/\/$/, '')
   return {
     base,
-    api: $fetch.create({ baseURL: base || undefined }),
+    // Timeout so a stuck backend shows an error instead of "Working…" forever.
+    // Generous because real AI generation (two image calls) can take a while.
+    api: $fetch.create({ baseURL: base || undefined, timeout: 180_000 }),
     // Backend-relative paths like /uploads/... → absolute when the backend is elsewhere
     asset: (path: string) => (path.startsWith('/') ? base + path : path)
   }

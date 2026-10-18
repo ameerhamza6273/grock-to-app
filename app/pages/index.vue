@@ -101,6 +101,8 @@ function errorMessage(e: unknown): string {
   if (typeof detail === 'string') return detail
   if (Array.isArray(detail)) return detail.map((d: { msg?: string }) => d.msg).join(', ')
   if (err.statusCode === 413) return 'File is too large.'
+  // No HTTP status = timeout, network failure or CORS block
+  if (!err.statusCode) return 'Could not reach the server (or it took too long). Please try again.'
   return err.message || 'Something went wrong.'
 }
 

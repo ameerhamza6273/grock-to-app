@@ -92,6 +92,15 @@ Key files in that package:
   `routeRules`. Not yet run against the real backend (no Python on the dev machine).
 - 2026-10-18: frontend also supports a static build (`NUXT_PUBLIC_API_BASE` + backend `CORS_ORIGINS`) so it can sit on the client's HostGator subdomain with the backend on Render (testing) / VPS — see end of DEPLOY.md.
 - Deployment config added 2026-10-18 (root docker-compose.yml, Dockerfile, deploy/nginx, DEPLOY.md) — not yet tested (no Docker on dev machine).
+- Live demo (2026-10-18, free, no card): frontend https://product-template-generator.vercel.app
+  (Vercel project `product-template-generator`, env `NUXT_PUBLIC_API_BASE`); backend on
+  PythonAnywhere free https://ameerhamza6273.pythonanywhere.com (repo cloned at
+  `~/grock-to-app`, WSGI file imports `backend/wsgi.py`, `backend/.env` holds `CORS_ORIGINS`).
+  Update backend: `git pull` in PA console + `touch /var/www/ameerhamza6273_pythonanywhere_com_wsgi.py`.
+  PA free site must be extended monthly (Web tab, "Run until 1 month from today"); its outbound
+  internet is allowlisted, so the real image API will likely need a paid plan or the VPS.
+  Render/HF Spaces were tried: Render needs a card even for free, HF Docker Spaces are paid now.
+  GitHub repo is public (user's choice).
 - Next: pick image API (waiting on client/Amir), provision the VPS and
   follow DEPLOY.md, real pad search.
 
