@@ -11,7 +11,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p uploads/templates uploads/rotors uploads/pads uploads/results data
+# World-writable so it also works where the container runs as a non-root user
+# (e.g. Hugging Face Spaces runs as uid 1000)
+RUN mkdir -p uploads/templates uploads/rotors uploads/pads uploads/results data \
+    && chmod -R 777 uploads data
 
 EXPOSE 8000
 
