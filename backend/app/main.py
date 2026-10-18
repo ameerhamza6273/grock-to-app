@@ -3,9 +3,10 @@ from typing import Optional
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.config import APP_NAME, UPLOAD_DIR
+from app.config import APP_NAME, UPLOAD_DIR, CORS_ORIGINS
 from app.models import init_db, AsyncSessionLocal, SavedTemplate, GenerationJob
 from app.services import (
     save_upload, search_pad_images, generate_final_image,
@@ -14,6 +15,13 @@ from app.services import (
 
 # The Nuxt frontend (repo root) is the UI; this app is a JSON API only.
 app = FastAPI(title=APP_NAME)
+if CORS_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=CORS_ORIGINS,
+        allow_methods=["GET", "POST", "DELETE"],
+        allow_headers=["*"],
+    )
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 

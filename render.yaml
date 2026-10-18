@@ -1,0 +1,19 @@
+# Demo/testing backend on Render's free tier (frontend is on Vercel).
+# Free tier: sleeps after ~15 min idle (first request then takes ~1 min) and the disk is
+# not persistent — uploads and saved templates reset on every restart/deploy.
+# Production is the VPS setup in DEPLOY.md.
+services:
+  - type: web
+    name: brake-tool-backend
+    runtime: docker
+    rootDir: backend
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "8000"
+      # Frontend URL when the UI is hosted elsewhere (e.g. https://tool.clientdomain.com)
+      - key: CORS_ORIGINS
+        sync: false
+      - key: MAX_UPLOAD_SIZE_MB
+        value: "20"

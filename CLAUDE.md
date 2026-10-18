@@ -90,6 +90,7 @@ Key files in that package:
   limit enforced; part numbers in filenames are alphanumeric-only per spec). Nuxt UI built
   (`app/pages/index.vue`, `app/components/ImageDrop.vue`), proxying to the backend via
   `routeRules`. Not yet run against the real backend (no Python on the dev machine).
+- 2026-10-18: frontend also supports a static build (`NUXT_PUBLIC_API_BASE` + backend `CORS_ORIGINS`) so it can sit on the client's HostGator subdomain with the backend on Render (testing) / VPS — see end of DEPLOY.md.
 - Deployment config added 2026-10-18 (root docker-compose.yml, Dockerfile, deploy/nginx, DEPLOY.md) — not yet tested (no Docker on dev machine).
 - Next: pick image API (waiting on client/Amir), provision the VPS and
   follow DEPLOY.md, real pad search.

@@ -7,6 +7,8 @@ import type {
   UploadTemplateResponse
 } from '~/types/api'
 
+const { base, api, asset } = useApi()
+
 // ---- Step 1: template ----
 const storeName = ref('')
 const templateSource = ref<'upload' | 'saved'>('upload')
@@ -15,6 +17,7 @@ const saveAsMaster = ref(false)
 const templateName = ref('')
 
 const { data: savedTemplates, refresh: refreshTemplates } = await useFetch<SavedTemplate[]>('/api/templates', {
+  baseURL: base || undefined,
   default: () => []
 })
 const selectedTemplateId = ref<number | null>(null)
@@ -33,7 +36,7 @@ async function archiveSelected() {
   const t = selectedTemplate.value
   if (!t || !confirm(`Remove "${t.name}" from saved templates?`)) return
   try {
-    await $fetch(`/api/templates/${t.id}`, { method: 'DELETE' })
+    await api(`/api/templates/${t.id}`, { method: 'DELETE' })
     selectedTemplateId.value = null
     await refreshTemplates()
   } catch (e) {
@@ -58,7 +61,7 @@ async function searchPads() {
   try {
     const fd = new FormData()
     fd.append('part_number', padPart.value.trim())
-    padSearch.value = await $fetch<PadSearchResponse>('/api/search-pads', { method: 'POST', body: fd })
+    padSearch.value = await api<PadSearchResponse>('/api/search-pads', { method: 'POST', body: fd })
   } catch (e) {
     padSearch.value = { part_number: padPart.value, results: [], message: errorMessage(e) }
   } finally {
@@ -113,7 +116,7 @@ async function resolveTemplatePath(): Promise<string> {
   fd.append('store_name', storeName.value.trim())
   fd.append('template_name', templateName.value.trim())
   fd.append('save_as_master', String(saveAsMaster.value))
-  const res = await $fetch<UploadTemplateResponse>('/api/upload-template', { method: 'POST', body: fd })
+  const res = await api<UploadTemplateResponse>('/api/upload-template', { method: 'POST', body: fd })
   uploaded = { file, path: res.path }
 
   if (res.template) {
@@ -145,7 +148,7 @@ async function generate() {
     if (padFile.value) fd.append('pad_image', padFile.value)
     else if (confirmedPad.value?.local_path) fd.append('confirmed_pad_path', confirmedPad.value.local_path)
 
-    result.value = await $fetch<GenerateResponse>('/api/generate', { method: 'POST', body: fd })
+    result.value = await api<GenerateResponse>('/api/generate', { method: 'POST', body: fd })
     status.value = ''
   } catch (e) {
     status.value = ''
@@ -208,7 +211,7 @@ async function generate() {
               :class="{ selected: t.id === selectedTemplateId }"
               @click="selectedTemplateId = t.id"
             >
-              <img :src="t.url" :alt="t.name">
+              <img :src="asset(t.url)" :alt="t.name">
               <span>{{ t.name }}</span>
             </button>
           </div>
@@ -259,7 +262,7 @@ async function generate() {
                     :disabled="!!padFile"
                     @click="confirmedPad = confirmedPad?.id === r.id ? null : r"
                   >
-                    <img :src="r.thumbnail || r.url" :alt="r.title">
+                    <img :src="asset(r.thumbnail || r.url || '')" :alt="r.title">
                     <span>{{ r.title }}</span>
                   </button>
                 </div>
@@ -285,8 +288,8 @@ async function generate() {
         <p v-if="error" class="alert">{{ error }}</p>
 
         <div v-if="result" class="result">
-          <img :src="`${result.final_url}?t=${result.job_id}`" :alt="result.filename">
-          <a class="btn-success" :href="result.download_url" :download="result.filename">Download {{ result.filename }}</a>
+          <img :src="`${asset(result.final_url)}?t=${result.job_id}`" :alt="result.filename">
+          <a class="btn-success" :href="asset(result.download_url)" :download="result.filename">Download {{ result.filename }}</a>
         </div>
       </section>
     </main>

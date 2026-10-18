@@ -9,6 +9,10 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   future: { compatibilityVersion: 4 },
   ssr: false,
+  runtimeConfig: {
+    // Empty = use the proxy below. Set NUXT_PUBLIC_API_BASE for static hosting.
+    public: { apiBase: '' }
+  },
   css: ['~/assets/css/main.css'],
   app: {
     head: {

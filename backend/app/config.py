@@ -22,3 +22,6 @@ DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite+aiosqlite:///{DATA_DIR}/tool.d
 MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "20"))
 IMAGE_GEN_API_URL = os.getenv("IMAGE_GEN_API_URL", "")
 IMAGE_GEN_API_KEY = os.getenv("IMAGE_GEN_API_KEY", "")
+# Comma-separated frontend origins allowed to call the API from another domain,
+# e.g. when the Nuxt app is a static build on shared hosting. Empty = same-origin only.
+CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]

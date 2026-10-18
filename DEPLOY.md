@@ -100,3 +100,26 @@ docker compose logs -f backend
 docker compose logs -f frontend
 sudo tail -f /var/log/nginx/error.log
 ```
+
+---
+
+# Alternative: frontend on the client's HostGator (shared cPanel)
+
+Shared hosting can serve static files but can't run the FastAPI backend (no Docker; Python
+only if cPanel shows **Setup Python App**). So the UI goes on HostGator as a static build
+and the backend runs elsewhere — Render free tier (`render.yaml`) for testing, the VPS later.
+
+1. **Backend on Render:** New → Blueprint → this repo. When asked for `CORS_ORIGINS`, enter
+   the frontend URL, e.g. `https://tool.clientdomain.com` (no trailing slash).
+2. **Build the frontend** with the backend URL baked in:
+   ```bash
+   NUXT_PUBLIC_API_BASE=https://brake-tool-backend.onrender.com npx nuxi generate
+   ```
+   (PowerShell: `$env:NUXT_PUBLIC_API_BASE="https://..."; npx nuxi generate`)
+3. **cPanel:** Domains → create subdomain `tool` (document root e.g. `public_html/tool`).
+4. Upload the **contents** of `.output/public/` into that document root (File Manager →
+   upload a zip → Extract).
+5. cPanel → SSL/TLS Status → run **AutoSSL** for the subdomain (free https).
+
+Re-run steps 2 + 4 after every frontend change, and step 2 again whenever the backend
+URL changes (it is baked in at build time).
