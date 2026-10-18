@@ -2,9 +2,10 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
-
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Explicit path: under uWSGI (PythonAnywhere) a bare load_dotenv() searches the cwd
+load_dotenv(BASE_DIR / ".env")
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", BASE_DIR / "uploads"))
 DATA_DIR = BASE_DIR / "data"
 
