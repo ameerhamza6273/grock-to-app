@@ -101,6 +101,40 @@ Key files in that package:
   internet is allowlisted, so the real image API will likely need a paid plan or the VPS.
   Render/HF Spaces were tried: Render needs a card even for free, HF Docker Spaces are paid now.
   GitHub repo is public (user's choice).
+- 2026-10-18: demo link + requests sent to client (via user). Our recommendation changed to
+  **Google Gemini (Nano Banana 2.1)** as the cheapest (~$0.07–0.11 per final listing vs xAI
+  ~$0.12–0.20, two edit calls each; rough figures from mixed sources). Plan: A/B test Gemini vs
+  xAI on 3–5 real client templates, pick whichever preserves branding best. Client's Grok chat
+  subscription does not cover API usage. Asked client for: Amir's OK on API, hi-res templates,
+  sample rotor/pad photos, screenshots of his current/old system (to match design/workflow),
+  preferred subdomain. Don't tell client "Claude can't make images" (user said already covered).
+  Waiting on client reply.
+- 2026-10-19: client replied (likes our demo UI/workflow). Sent `Downloads\Testing App.zip`:
+  template PNG 1350x1350 (2 angled drilled/slotted rotors, 4 staggered pads, hardware clips),
+  `DF_61040036_Ang.jpg` / `DF_61040036_Fro.jpg` (rotor, 1500px, white bg),
+  `BR_P09004N_Bac.jpg` (4 pads grid, 2500px, white bg). Real use case: workers get a batch of
+  listings, swap part numbers + photos, save finals (Canva takes 20–25 min each). Priority:
+  cheapest + reliable. Hosting: `picapp.synergyparts.co` or `synergy-parts.com`.
+  Our proposal: deterministic compositing (cut out white bg, place in fixed slots on a blank
+  template) instead of generative AI — $0/image, branding untouched; AI only optional fallback.
+  Part numbers can be parsed from filenames (`DF_<rotor>_<view>`, `BR_<pad>_<view>`).
+  Asked client for blank template export from Canva and DNS contact. Canva Autofill API is
+  Enterprise-only, so not the affordable route.
+- 2026-10-19: client said "Would love to see it" → made a demo composite with a Node/sharp
+  script (scratchpad, not in repo): products placed under an overlay cut from the template
+  (badge, slogan, OEM seal, hardware sit on top). Looked right on first real test.
+  Client also asked if this helps product images for **LogicAutoParts** (our parts store,
+  has products + fitment) and where images come from. Answer: the tool doesn't fetch images,
+  it uses photos the user provides; it can bulk-generate per part number if the store's
+  product data has image URLs/files (source still unknown, asked).
+- 2026-10-19: client asked for blank template (will send "later today"). Built the batch flow
+  into the Nuxt app, compositing **in the browser** (canvas, no backend, no AI):
+  `app/utils/templates.ts` (layout: slots + `keep` mask for top layer), `app/utils/compose.ts`,
+  `app/components/PhotoDrop.vue`, new `app/pages/index.vue` (template → photos grouped by part
+  number from filename → listings auto-paired → create all → ZIP via `fflate`). Template image
+  in `public/templates/brembo-ale.png`. Tested in Chrome with client's photos: ~1.5 s/image.
+  The page no longer calls the FastAPI backend (kept for a possible AI fallback). When the
+  blank Canva template arrives: swap the PNG and simplify `keep` (overlay export if provided).
 - Next: pick image API (waiting on client/Amir), provision the VPS and
   follow DEPLOY.md, real pad search.
 

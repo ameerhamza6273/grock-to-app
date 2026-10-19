@@ -1,163 +1,148 @@
 <script setup lang="ts">
-import type {
-  GenerateResponse,
-  PadSearchResponse,
-  PadSearchResult,
-  SavedTemplate,
-  UploadTemplateResponse
-} from '~/types/api'
-
-const { base, api, asset } = useApi()
+import { zipSync } from 'fflate'
+import { composeListing, finalFilename, parsePhotoName, type PhotoKind } from '~/utils/compose'
+import { templates } from '~/utils/templates'
 
 // ---- Step 1: template ----
-const storeName = ref('')
-const templateSource = ref<'upload' | 'saved'>('upload')
-const templateFile = ref<File | null>(null)
-const saveAsMaster = ref(false)
-const templateName = ref('')
+const templateId = ref(templates[0]!.id)
+const layout = computed(() => templates.find(t => t.id === templateId.value)!)
+const storeName = ref(layout.value.store)
+watch(layout, (t) => { storeName.value = t.store })
 
-const { data: savedTemplates, refresh: refreshTemplates } = await useFetch<SavedTemplate[]>('/api/templates', {
-  baseURL: base || undefined,
-  default: () => []
-})
-const selectedTemplateId = ref<number | null>(null)
-const selectedTemplate = computed(() => savedTemplates.value.find(t => t.id === selectedTemplateId.value) ?? null)
+// ---- Step 2: photos ----
+// Photos are grouped by part number, so DF_61040036_Ang + DF_61040036_Fro are one rotor
+interface Photo { id: number, file: File, url: string, key: string, part: string, view: string }
+interface PartGroup { key: string, part: string, photos: Photo[], photo: Photo }
 
-watch(selectedTemplate, (t) => {
-  // Saved templates remember their store; prefill it only if the user hasn't typed one
-  if (t?.store_name && !storeName.value.trim()) storeName.value = t.store_name
-})
+let nextId = 1
+const photos = reactive<Record<PhotoKind, Photo[]>>({ rotor: [], pad: [] })
+// Part numbers typed by the user, by group key
+const partEdits = reactive<Record<string, string>>({})
+// Which photo of a group is used, by group key (defaults to the angled shot for rotors)
+const photoPick = reactive<Record<string, number>>({})
 
-// The uploaded template is reused across "Generate" clicks until the file changes
-let uploaded: { file: File, path: string } | null = null
-watch(templateFile, () => { uploaded = null })
-
-async function archiveSelected() {
-  const t = selectedTemplate.value
-  if (!t || !confirm(`Remove "${t.name}" from saved templates?`)) return
-  try {
-    await api(`/api/templates/${t.id}`, { method: 'DELETE' })
-    selectedTemplateId.value = null
-    await refreshTemplates()
-  } catch (e) {
-    error.value = errorMessage(e)
+function addPhotos(kind: PhotoKind, files: File[]) {
+  for (const file of files) {
+    const { part, view } = parsePhotoName(file.name)
+    const key = `${kind}:${(part || file.name).toUpperCase()}`
+    photos[kind].push({ id: nextId++, file, url: URL.createObjectURL(file), key, part, view })
+    partEdits[key] ??= part
   }
+  syncListings()
 }
 
-// ---- Step 2: rotor + pads ----
-const rotorPart = ref('')
-const rotorFile = ref<File | null>(null)
-
-const padPart = ref('')
-const padFile = ref<File | null>(null)
-const padSearching = ref(false)
-const padSearch = ref<PadSearchResponse | null>(null)
-const confirmedPad = ref<PadSearchResult | null>(null)
-
-async function searchPads() {
-  if (!padPart.value.trim()) return
-  padSearching.value = true
-  confirmedPad.value = null
-  try {
-    const fd = new FormData()
-    fd.append('part_number', padPart.value.trim())
-    padSearch.value = await api<PadSearchResponse>('/api/search-pads', { method: 'POST', body: fd })
-  } catch (e) {
-    padSearch.value = { part_number: padPart.value, results: [], message: errorMessage(e) }
-  } finally {
-    padSearching.value = false
-  }
+function removeGroup(kind: PhotoKind, key: string) {
+  photos[kind] = photos[kind].filter((p) => {
+    if (p.key === key) URL.revokeObjectURL(p.url)
+    return p.key !== key
+  })
+  delete partEdits[key]
+  delete photoPick[key]
+  syncListings()
 }
 
-// An uploaded pad photo always wins over a search pick (same rule as the backend)
-watch(padFile, (f) => { if (f) confirmedPad.value = null })
-watch(padPart, () => { padSearch.value = null; confirmedPad.value = null })
+onBeforeUnmount(() => {
+  for (const p of [...photos.rotor, ...photos.pad]) URL.revokeObjectURL(p.url)
+  clearResults()
+})
 
-// ---- Step 3: generate ----
+function groupsOf(kind: PhotoKind): PartGroup[] {
+  const map = new Map<string, Photo[]>()
+  for (const p of photos[kind]) map.set(p.key, [...(map.get(p.key) ?? []), p])
+  return [...map].map(([key, list]) => {
+    const picked = list.find(p => p.id === photoPick[key])
+      ?? (kind === 'rotor' ? list.find(p => p.view.startsWith('ang')) : undefined)
+      ?? list[0]!
+    return { key, part: partEdits[key] ?? list[0]!.part, photos: list, photo: picked }
+  })
+}
+const rotors = computed(() => groupsOf('rotor'))
+const pads = computed(() => groupsOf('pad'))
+const groupByKey = computed(() => new Map([...rotors.value, ...pads.value].map(g => [g.key, g])))
+
+// ---- Step 3: listings (one rotor + one pad set = one final image) ----
+interface Listing { id: number, rotor: string, pad: string }
+const listings = ref<Listing[]>([])
+
+// New photos fill empty slots in order, adding listings as needed; removed photos free their slot
+function syncListings() {
+  const keys = groupByKey.value
+  for (const l of listings.value) {
+    if (!keys.has(l.rotor)) l.rotor = ''
+    if (!keys.has(l.pad)) l.pad = ''
+  }
+  for (const kind of ['rotor', 'pad'] as const) {
+    const used = new Set(listings.value.map(l => l[kind]))
+    const fresh = (kind === 'rotor' ? rotors.value : pads.value).filter(g => !used.has(g.key))
+    for (const g of fresh) {
+      const slot = listings.value.find(l => !l[kind])
+      if (slot) slot[kind] = g.key
+      else listings.value.push({ id: nextId++, rotor: kind === 'rotor' ? g.key : '', pad: kind === 'pad' ? g.key : '' })
+    }
+  }
+  listings.value = listings.value.filter(l => l.rotor || l.pad)
+}
+
+function addListing() {
+  listings.value.push({ id: nextId++, rotor: rotors.value[0]?.key ?? '', pad: pads.value[0]?.key ?? '' })
+}
+
+function filenameFor(l: Listing) {
+  return finalFilename(storeName.value, groupByKey.value.get(l.rotor)?.part ?? '', groupByKey.value.get(l.pad)?.part ?? '')
+}
+
+const ready = computed(() => listings.value.filter(l => l.rotor && l.pad))
+
+// ---- Step 4: generate ----
+interface Result { id: number, filename: string, url: string, blob: Blob }
+const results = ref<Result[]>([])
+const failures = ref<string[]>([])
+const progress = ref('')
 const generating = ref(false)
-const status = ref('')
-const error = ref('')
-const result = ref<GenerateResponse | null>(null)
 
-// Mirrors make_final_filename() in backend/app/services.py
-const expectedFilename = computed(() => {
-  const store = storeName.value.replace(/[^A-Za-z0-9_-]/g, '') || 'Store'
-  const rotor = rotorPart.value.replace(/[^A-Za-z0-9]/g, '') || 'ROTOR'
-  const pad = padPart.value.replace(/[^A-Za-z0-9]/g, '') || 'PAD'
-  return `${store}_${rotor}_${pad}_Final.jpg`
-})
-
-const missing = computed(() => {
-  const list: string[] = []
-  if (!storeName.value.trim()) list.push('store name')
-  if (templateSource.value === 'upload' ? !templateFile.value : !selectedTemplate.value) list.push('template')
-  if (!rotorFile.value && !padFile.value && !confirmedPad.value?.local_path) list.push('a rotor or pad image')
-  return list
-})
-
-function errorMessage(e: unknown): string {
-  const err = e as { data?: { detail?: unknown }, statusCode?: number, message?: string }
-  const detail = err.data?.detail
-  if (typeof detail === 'string') return detail
-  if (Array.isArray(detail)) return detail.map((d: { msg?: string }) => d.msg).join(', ')
-  if (err.statusCode === 413) return 'File is too large.'
-  // No HTTP status = timeout, network failure or CORS block
-  if (!err.statusCode) return 'Could not reach the server (or it took too long). Please try again.'
-  return err.message || 'Something went wrong.'
+function clearResults() {
+  for (const r of results.value) URL.revokeObjectURL(r.url)
+  results.value = []
+  failures.value = []
 }
 
-async function resolveTemplatePath(): Promise<string> {
-  if (templateSource.value === 'saved') return selectedTemplate.value!.path
-
-  const file = templateFile.value!
-  if (uploaded?.file === file) return uploaded.path
-
-  status.value = 'Uploading template…'
-  const fd = new FormData()
-  fd.append('template', file)
-  fd.append('store_name', storeName.value.trim())
-  fd.append('template_name', templateName.value.trim())
-  fd.append('save_as_master', String(saveAsMaster.value))
-  const res = await api<UploadTemplateResponse>('/api/upload-template', { method: 'POST', body: fd })
-  uploaded = { file, path: res.path }
-
-  if (res.template) {
-    // Saved as master: switch to it so later runs don't upload it again
-    await refreshTemplates()
-    templateSource.value = 'saved'
-    selectedTemplateId.value = res.template.id
-    templateFile.value = null
-  }
-  return res.path
-}
-
-async function generate() {
-  if (missing.value.length || generating.value) return
+async function generateAll() {
+  if (!ready.value.length || generating.value) return
   generating.value = true
-  error.value = ''
-  result.value = null
-  try {
-    const templatePath = await resolveTemplatePath()
-
-    status.value = 'Generating final image… this can take a minute.'
-    const fd = new FormData()
-    fd.append('store_name', storeName.value.trim())
-    fd.append('template_path', templatePath)
-    fd.append('is_one_time', String(templateSource.value === 'upload' && !saveAsMaster.value))
-    fd.append('rotor_part', rotorPart.value.trim())
-    fd.append('pad_part', padPart.value.trim())
-    if (rotorFile.value) fd.append('rotor_image', rotorFile.value)
-    if (padFile.value) fd.append('pad_image', padFile.value)
-    else if (confirmedPad.value?.local_path) fd.append('confirmed_pad_path', confirmedPad.value.local_path)
-
-    result.value = await api<GenerateResponse>('/api/generate', { method: 'POST', body: fd })
-    status.value = ''
-  } catch (e) {
-    status.value = ''
-    error.value = errorMessage(e)
-  } finally {
-    generating.value = false
+  clearResults()
+  const todo = ready.value.slice()
+  const names = new Set<string>()
+  for (const [i, l] of todo.entries()) {
+    progress.value = `Creating image ${i + 1} of ${todo.length}…`
+    let filename = filenameFor(l)
+    // Same rotor + pad twice would overwrite each other in the ZIP
+    for (let n = 2; names.has(filename); n++) filename = filenameFor(l).replace(/_Final\.jpg$/, `_Final_${n}.jpg`)
+    names.add(filename)
+    try {
+      const blob = await composeListing(layout.value, groupByKey.value.get(l.rotor)!.photo.file, groupByKey.value.get(l.pad)!.photo.file)
+      results.value.push({ id: l.id, filename, url: URL.createObjectURL(blob), blob })
+    } catch (e) {
+      failures.value.push(`${filename}: ${(e as Error).message || 'could not read one of the photos.'}`)
+    }
   }
+  progress.value = ''
+  generating.value = false
+}
+
+function save(blob: Blob, filename: string) {
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = filename
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+}
+
+async function downloadZip() {
+  const files: Record<string, [Uint8Array, { level: 0 }]> = {}
+  for (const r of results.value) files[r.filename] = [new Uint8Array(await r.blob.arrayBuffer()), { level: 0 }]
+  const zip = zipSync(files)
+  const store = storeName.value.replace(/[^A-Za-z0-9_-]/g, '') || 'Store'
+  save(new Blob([zip as Uint8Array<ArrayBuffer>], { type: 'application/zip' }), `${store}_Listings.zip`)
 }
 </script>
 
@@ -173,126 +158,115 @@ async function generate() {
     <main class="container stack">
       <!-- STEP 1 -->
       <section class="card">
-        <h2><span class="step">1</span> Base template</h2>
+        <h2><span class="step">1</span> Template</h2>
         <p class="muted">Branding, logos, hardware, text and layout stay exactly as in the template — only the rotors and pads are swapped.</p>
 
+        <div class="tpl-grid">
+          <button
+            v-for="t in templates"
+            :key="t.id"
+            type="button"
+            class="tpl"
+            :class="{ selected: t.id === templateId }"
+            @click="templateId = t.id"
+          >
+            <img :src="t.src" :alt="t.name">
+            <span>{{ t.name }}</span>
+          </button>
+        </div>
+
         <label class="field">
-          <span>Customer / store name *</span>
+          <span>Store name (used in the file name)</span>
           <input v-model="storeName" type="text" placeholder="e.g. AleAutoParts">
         </label>
-
-        <div class="tabs" role="tablist">
-          <button type="button" role="tab" :aria-selected="templateSource === 'upload'" :class="{ active: templateSource === 'upload' }" @click="templateSource = 'upload'">
-            Upload new
-          </button>
-          <button type="button" role="tab" :aria-selected="templateSource === 'saved'" :class="{ active: templateSource === 'saved' }" @click="templateSource = 'saved'">
-            Saved templates ({{ savedTemplates.length }})
-          </button>
-        </div>
-
-        <div v-if="templateSource === 'upload'" class="stack-sm">
-          <ImageDrop v-model="templateFile" label="Drag & drop the template image here, or click to browse" />
-          <div class="radios">
-            <label><input v-model="saveAsMaster" type="radio" :value="false"> One-time use</label>
-            <label><input v-model="saveAsMaster" type="radio" :value="true"> Save as reusable master template</label>
-          </div>
-          <label v-if="saveAsMaster" class="field">
-            <span>Template name</span>
-            <input v-model="templateName" type="text" placeholder="e.g. Brembo + ALE front kit">
-          </label>
-        </div>
-
-        <div v-else class="stack-sm">
-          <p v-if="!savedTemplates.length" class="muted">No saved templates yet. Upload one and choose “Save as reusable master template”.</p>
-          <div v-else class="tpl-grid">
-            <button
-              v-for="t in savedTemplates"
-              :key="t.id"
-              type="button"
-              class="tpl"
-              :class="{ selected: t.id === selectedTemplateId }"
-              @click="selectedTemplateId = t.id"
-            >
-              <img :src="asset(t.url)" :alt="t.name">
-              <span>{{ t.name }}</span>
-            </button>
-          </div>
-          <div v-if="selectedTemplate" class="row-between">
-            <span class="small muted">Selected: {{ selectedTemplate.name }}</span>
-            <button type="button" class="btn-text danger" @click="archiveSelected">Remove from saved</button>
-          </div>
-        </div>
       </section>
 
       <!-- STEP 2 -->
       <section class="card">
-        <h2><span class="step">2</span> Rotor &amp; brake pads</h2>
-        <p class="muted">Provide a new rotor and/or pad image. Part numbers go into the output filename.</p>
+        <h2><span class="step">2</span> Product photos</h2>
+        <p class="muted">Drop all photos for the batch at once. Part numbers are read from file names like <code>DF_61040036_Ang.jpg</code> — check them below.</p>
 
         <div class="grid-2">
-          <div class="stack-sm">
-            <h3>Rotor</h3>
-            <label class="field">
-              <span>Rotor part number</span>
-              <input v-model="rotorPart" type="text" placeholder="e.g. DF_63326007R">
-            </label>
-            <ImageDrop v-model="rotorFile" label="Upload rotor image" compact />
-          </div>
+          <div v-for="kind in (['rotor', 'pad'] as const)" :key="kind" class="stack-sm">
+            <h3>{{ kind === 'rotor' ? 'Rotors' : 'Brake pads' }}</h3>
+            <PhotoDrop :label="kind === 'rotor' ? 'Drop rotor photos here, or click to browse' : 'Drop pad photos here, or click to browse'" @add="addPhotos(kind, $event)" />
 
-          <div class="stack-sm">
-            <h3>Brake pads</h3>
-            <label class="field">
-              <span>Pad part number</span>
-              <div class="input-row">
-                <input v-model="padPart" type="text" placeholder="e.g. P09028" @keydown.enter.prevent="searchPads">
-                <button type="button" class="btn-secondary" :disabled="!padPart.trim() || padSearching" @click="searchPads">
-                  {{ padSearching ? 'Searching…' : 'Find pads' }}
-                </button>
-              </div>
-            </label>
-
-            <div v-if="padSearch" class="pad-results">
-              <template v-if="padSearch.results.length">
-                <p class="small">Confirm the correct pad photo:</p>
-                <div class="tpl-grid">
+            <div v-for="g in (kind === 'rotor' ? rotors : pads)" :key="g.key" class="part">
+              <img :src="g.photo.url" :alt="g.part">
+              <div class="part-body">
+                <label class="field">
+                  <span class="small">Part number</span>
+                  <input v-model="partEdits[g.key]" type="text" :placeholder="g.part || 'Type part number'">
+                </label>
+                <div v-if="g.photos.length > 1" class="views">
                   <button
-                    v-for="r in padSearch.results"
-                    :key="r.id"
+                    v-for="p in g.photos"
+                    :key="p.id"
                     type="button"
-                    class="tpl"
-                    :class="{ selected: confirmedPad?.id === r.id }"
-                    :disabled="!!padFile"
-                    @click="confirmedPad = confirmedPad?.id === r.id ? null : r"
+                    class="view"
+                    :class="{ active: p.id === g.photo.id }"
+                    :title="p.file.name"
+                    @click="photoPick[g.key] = p.id"
                   >
-                    <img :src="asset(r.thumbnail || r.url || '')" :alt="r.title">
-                    <span>{{ r.title }}</span>
+                    {{ p.view || p.file.name }}
                   </button>
                 </div>
-              </template>
-              <p v-else class="small muted">{{ padSearch.message }}</p>
+                <button type="button" class="btn-text danger" @click="removeGroup(kind, g.key)">Remove</button>
+              </div>
             </div>
-
-            <ImageDrop v-model="padFile" label="Or upload your own pad image" compact />
           </div>
         </div>
       </section>
 
       <!-- STEP 3 -->
       <section class="card">
-        <h2><span class="step">3</span> Generate final product</h2>
-        <p class="small muted">Output file: <code>{{ expectedFilename }}</code></p>
+        <h2><span class="step">3</span> Listings</h2>
+        <p class="muted">One image per listing. Rotors and pads are paired in the order they were added — change any pair here.</p>
 
-        <button type="button" class="btn-primary" :disabled="!!missing.length || generating" @click="generate">
-          {{ generating ? 'Working…' : 'Generate final image' }}
-        </button>
-        <p v-if="missing.length && !generating" class="small muted center">Still needed: {{ missing.join(', ') }}</p>
-        <p v-if="status" class="small center">{{ status }}</p>
-        <p v-if="error" class="alert">{{ error }}</p>
-
-        <div v-if="result" class="result">
-          <img :src="`${asset(result.final_url)}?t=${result.job_id}`" :alt="result.filename">
-          <a class="btn-success" :href="asset(result.download_url)" :download="result.filename">Download {{ result.filename }}</a>
+        <p v-if="!listings.length" class="small muted">Add photos above to start.</p>
+        <div v-for="(l, i) in listings" :key="l.id" class="listing">
+          <span class="listing-no">{{ i + 1 }}</span>
+          <select v-model="l.rotor" aria-label="Rotor">
+            <option value="">— rotor —</option>
+            <option v-for="g in rotors" :key="g.key" :value="g.key">{{ g.part || g.photo.file.name }}</option>
+          </select>
+          <select v-model="l.pad" aria-label="Brake pads">
+            <option value="">— pads —</option>
+            <option v-for="g in pads" :key="g.key" :value="g.key">{{ g.part || g.photo.file.name }}</option>
+          </select>
+          <code class="listing-file">{{ filenameFor(l) }}</code>
+          <button type="button" class="btn-text danger" @click="listings.splice(i, 1)">Remove</button>
         </div>
+        <div v-if="rotors.length && pads.length">
+          <button type="button" class="btn-text" @click="addListing">+ Add listing</button>
+        </div>
+      </section>
+
+      <!-- STEP 4 -->
+      <section class="card">
+        <h2><span class="step">4</span> Create images</h2>
+
+        <button type="button" class="btn-primary" :disabled="!ready.length || generating" @click="generateAll">
+          {{ generating ? 'Working…' : `Create ${ready.length || ''} image${ready.length === 1 ? '' : 's'}` }}
+        </button>
+        <p v-if="!ready.length && !generating" class="small muted center">Each listing needs a rotor and a pad photo.</p>
+        <p v-if="progress" class="small center">{{ progress }}</p>
+        <p v-for="f in failures" :key="f" class="alert">{{ f }}</p>
+
+        <template v-if="results.length && !generating">
+          <div class="center">
+            <button type="button" class="btn-success" @click="downloadZip">Download all ({{ results.length }}) as ZIP</button>
+          </div>
+          <div class="results">
+            <figure v-for="r in results" :key="r.filename">
+              <img :src="r.url" :alt="r.filename">
+              <figcaption>
+                <span class="small">{{ r.filename }}</span>
+                <button type="button" class="btn-text" @click="save(r.blob, r.filename)">Download</button>
+              </figcaption>
+            </figure>
+          </div>
+        </template>
       </section>
     </main>
   </div>
