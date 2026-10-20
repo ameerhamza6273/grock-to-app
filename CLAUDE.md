@@ -135,6 +135,11 @@ Key files in that package:
   in `public/templates/brembo-ale.png`. Tested in Chrome with client's photos: ~1.5 s/image.
   The page no longer calls the FastAPI backend (kept for a possible AI fallback). When the
   blank Canva template arrives: swap the PNG and simplify `keep` (overlay export if provided).
+- 2026-10-20: client sent the blank template as 2 WhatsApp JPEGs (1600px): base layer (logos,
+  seal, hardware, footer; no products) → `public/templates/brembo-ale.jpg`, and top layer
+  (badge, slogan, red rules on white) → `brembo-ale-top.jpg`. App now layers base → products →
+  overlay; old PNG with baked-in products removed. Checked with a sharp render, not yet in Chrome.
+  WhatsApp compresses — ask for the original PNG exports.
 - Next: pick image API (waiting on client/Amir), provision the VPS and
   follow DEPLOY.md, real pad search.
 

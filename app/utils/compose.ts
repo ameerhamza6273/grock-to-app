@@ -37,16 +37,16 @@ async function loadImage(src: Blob | string) {
 }
 
 // Template + the layer that goes on top of the products, computed once per template
-const prepared = new Map<string, Promise<{ width: number, height: number, overlay: HTMLCanvasElement }>>()
+const prepared = new Map<string, Promise<{ width: number, height: number, base: ImageBitmap, overlay: HTMLCanvasElement }>>()
 
 function prepareTemplate(layout: TemplateLayout) {
   let p = prepared.get(layout.id)
   if (!p) {
     p = (async () => {
-      const img = await loadImage(layout.src)
-      const c = canvas(img.width, img.height)
+      const [base, img] = await Promise.all([loadImage(layout.src), loadImage(layout.overlay)])
+      const c = canvas(base.width, base.height)
       const ctx = context(c)
-      ctx.drawImage(img, 0, 0)
+      ctx.drawImage(img, 0, 0, c.width, c.height)
       img.close()
       const data = ctx.getImageData(0, 0, c.width, c.height)
       const d = data.data
@@ -58,7 +58,7 @@ function prepareTemplate(layout: TemplateLayout) {
         }
       }
       ctx.putImageData(data, 0, 0)
-      return { width: c.width, height: c.height, overlay: c }
+      return { width: c.width, height: c.height, base, overlay: c }
     })()
     p.catch(() => prepared.delete(layout.id))
     prepared.set(layout.id, p)
@@ -115,8 +115,7 @@ export async function composeListing(layout: TemplateLayout, rotorPhoto: Blob, p
   const s = tpl.width / layout.size
   const out = canvas(tpl.width, tpl.height)
   const ctx = out.getContext('2d')!
-  ctx.fillStyle = '#fff'
-  ctx.fillRect(0, 0, out.width, out.height)
+  ctx.drawImage(tpl.base, 0, 0)
 
   const rh = layout.rotorHeight * s
   const rw = rh * rotor.width / rotor.height
