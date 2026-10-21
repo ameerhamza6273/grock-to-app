@@ -1,13 +1,28 @@
 <script setup lang="ts">
 import { zipSync } from 'fflate'
-import { composeListing, finalFilename, parsePhotoName, type PhotoKind } from '~/utils/compose'
-import { templates } from '~/utils/templates'
+import { composeListing, finalFilename, forgetTemplate, parsePhotoName, type PhotoKind } from '~/utils/compose'
+import { customTemplate, templates, type TemplateLayout } from '~/utils/templates'
 
 // ---- Step 1: template ----
+// The user's own blank template, e.g. for another brand
+const ownBase = ref<{ file: File, url: string } | null>(null)
+const own = shallowRef<TemplateLayout | null>(null)
+let ownVersion = 0
+
+function setOwn(files: File[] | null) {
+  if (ownBase.value) URL.revokeObjectURL(ownBase.value.url)
+  ownBase.value = files?.[0] ? { file: files[0], url: URL.createObjectURL(files[0]) } : null
+  if (own.value) forgetTemplate(own.value.id)
+  own.value = ownBase.value ? customTemplate(`own-${++ownVersion}`, ownBase.value.url) : null
+  if (own.value) templateId.value = own.value.id
+  else if (!templates.some(t => t.id === templateId.value)) templateId.value = templates[0]!.id
+}
+
+const allTemplates = computed(() => (own.value ? [...templates, own.value] : templates))
 const templateId = ref(templates[0]!.id)
-const layout = computed(() => templates.find(t => t.id === templateId.value)!)
+const layout = computed(() => allTemplates.value.find(t => t.id === templateId.value) ?? templates[0]!)
 const storeName = ref(layout.value.store)
-watch(layout, (t) => { storeName.value = t.store })
+watch(layout, (t) => { if (t.store) storeName.value = t.store })
 
 // ---- Step 2: photos ----
 // Photos are grouped by part number, so DF_61040036_Ang + DF_61040036_Fro are one rotor
@@ -43,6 +58,7 @@ function removeGroup(kind: PhotoKind, key: string) {
 
 onBeforeUnmount(() => {
   for (const p of [...photos.rotor, ...photos.pad]) URL.revokeObjectURL(p.url)
+  if (ownBase.value) URL.revokeObjectURL(ownBase.value.url)
   clearResults()
 })
 
@@ -163,7 +179,7 @@ async function downloadZip() {
 
         <div class="tpl-grid">
           <button
-            v-for="t in templates"
+            v-for="t in allTemplates"
             :key="t.id"
             type="button"
             class="tpl"
@@ -174,6 +190,19 @@ async function downloadZip() {
             <span>{{ t.name }}</span>
           </button>
         </div>
+
+        <details class="own" :open="!!ownBase">
+          <summary>Use your own template</summary>
+          <p class="small muted">For another brand: upload a square template without products. Rotors and pads go in the same spots as above.</p>
+          <div v-if="ownBase" class="part">
+            <img :src="ownBase.url" alt="Your template">
+            <div class="part-body">
+              <span class="small">{{ ownBase.file.name }}</span>
+              <button type="button" class="btn-text danger" :disabled="generating" @click="setOwn(null)">Remove</button>
+            </div>
+          </div>
+          <PhotoDrop v-else label="Drop your template here, or click to browse" @add="generating || setOwn($event)" />
+        </details>
 
         <label class="field">
           <span>Store name (used in the file name)</span>

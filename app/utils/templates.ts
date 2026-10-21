@@ -7,7 +7,7 @@ export interface TemplateLayout {
   id: string
   name: string
   src: string
-  overlay: string
+  overlay?: string
   store: string
   size: number
   rotorHeight: number
@@ -15,7 +15,7 @@ export interface TemplateLayout {
   rotors: { x: number, y: number, flip?: boolean }[]
   padWidth: number
   pads: [number, number][]
-  keep: (x: number, y: number, r: number, g: number, b: number) => boolean
+  keep?: (x: number, y: number, r: number, g: number, b: number) => boolean
 }
 
 function inPolygon(x: number, y: number, poly: [number, number][]) {
@@ -30,6 +30,15 @@ function inPolygon(x: number, y: number, poly: [number, number][]) {
 
 const illustrationBadge: [number, number][] = [[0, 983], [17, 893], [372, 960], [338, 1130], [0, 1130]]
 
+// Where the rotors and pads go — shared by every template, including the user's own
+const productSlots = {
+  size: 1350,
+  rotorHeight: 760,
+  rotors: [{ x: 70, y: 305, flip: true }, { x: 255, y: 300 }],
+  padWidth: 335,
+  pads: [[685, 560], [985, 665], [685, 770], [985, 870]] as [number, number][]
+}
+
 export const templates: TemplateLayout[] = [
   {
     id: 'brembo-ale',
@@ -37,13 +46,14 @@ export const templates: TemplateLayout[] = [
     src: '/templates/brembo-ale.png',
     overlay: '/templates/brembo-ale-top.png',
     store: 'AleAutoParts',
-    size: 1350,
-    rotorHeight: 760,
-    rotors: [{ x: 70, y: 305, flip: true }, { x: 255, y: 300 }],
-    padWidth: 335,
-    pads: [[685, 560], [985, 665], [685, 770], [985, 870]],
+    ...productSlots,
     // The overlay is on white: keep what is coloured plus the badge (its text is white). The
     // footer band is in the base and sits in front, so nothing below its top edge is kept.
     keep: (x, y, r, g, b) => y < 1130 && (Math.min(r, g, b) < 230 || inPolygon(x, y, illustrationBadge))
   }
 ]
+
+// A blank template the user uploads (e.g. another brand): products go in the same spots, on top
+export function customTemplate(id: string, src: string): TemplateLayout {
+  return { id, name: 'Your template', src, store: '', ...productSlots }
+}

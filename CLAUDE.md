@@ -142,6 +142,9 @@ Key files in that package:
   2026-10-21: client sent the original Canva PNGs (1620px, `Downloads\Requested Info 10-20-2026`),
   now `public/templates/brembo-ale.png` / `brembo-ale-top.png`, plus a 2nd test set (P44028:
   silver drilled rotor, red pads). Both sets tested in Chrome, look right.
+- 2026-10-21: user decided we don't hand-build a template per brand. Step 1 now has "Use your own
+  template": user uploads one blank background (no top banner, user's call); products go in the
+  same slots as Brembo (`productSlots` in templates.ts), drawn on top of everything. Tested in Chrome.
 - Next: pick image API (waiting on client/Amir), provision the VPS and
   follow DEPLOY.md, real pad search.
 

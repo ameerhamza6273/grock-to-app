@@ -43,27 +43,35 @@ function prepareTemplate(layout: TemplateLayout) {
   let p = prepared.get(layout.id)
   if (!p) {
     p = (async () => {
-      const [base, img] = await Promise.all([loadImage(layout.src), loadImage(layout.overlay)])
+      const [base, img] = await Promise.all([loadImage(layout.src), layout.overlay ? loadImage(layout.overlay) : undefined])
       const c = canvas(base.width, base.height)
-      const ctx = context(c)
-      ctx.drawImage(img, 0, 0, c.width, c.height)
-      img.close()
-      const data = ctx.getImageData(0, 0, c.width, c.height)
-      const d = data.data
-      const s = c.width / layout.size
-      for (let Y = 0; Y < c.height; Y++) {
-        for (let X = 0; X < c.width; X++) {
-          const i = (Y * c.width + X) * 4
-          if (!layout.keep(X / s, Y / s, d[i]!, d[i + 1]!, d[i + 2]!)) d[i + 3] = 0
+      if (img) {
+        const ctx = context(c)
+        ctx.drawImage(img, 0, 0, c.width, c.height)
+        img.close()
+        const data = ctx.getImageData(0, 0, c.width, c.height)
+        const d = data.data
+        const s = c.width / layout.size
+        for (let Y = 0; Y < c.height; Y++) {
+          for (let X = 0; X < c.width; X++) {
+            const i = (Y * c.width + X) * 4
+            if (layout.keep && !layout.keep(X / s, Y / s, d[i]!, d[i + 1]!, d[i + 2]!)) d[i + 3] = 0
+          }
         }
+        ctx.putImageData(data, 0, 0)
       }
-      ctx.putImageData(data, 0, 0)
       return { width: c.width, height: c.height, base, overlay: c }
     })()
     p.catch(() => prepared.delete(layout.id))
     prepared.set(layout.id, p)
   }
   return p
+}
+
+// Frees a template's cached layers, e.g. when the user replaces their own template
+export function forgetTemplate(id: string) {
+  prepared.get(id)?.then(t => t.base.close(), () => {})
+  prepared.delete(id)
 }
 
 // Makes the white studio background transparent and crops to the product.
