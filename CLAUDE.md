@@ -138,8 +138,10 @@ Key files in that package:
 - 2026-10-20: client sent the blank template as 2 WhatsApp JPEGs (1600px): base layer (logos,
   seal, hardware, footer; no products) → `public/templates/brembo-ale.jpg`, and top layer
   (badge, slogan, red rules on white) → `brembo-ale-top.jpg`. App now layers base → products →
-  overlay; old PNG with baked-in products removed. Checked with a sharp render, not yet in Chrome.
-  WhatsApp compresses — ask for the original PNG exports.
+  overlay; old PNG with baked-in products removed. Tested live on Vercel 2026-10-21 (1600x1600 output, looks right).
+  2026-10-21: client sent the original Canva PNGs (1620px, `Downloads\Requested Info 10-20-2026`),
+  now `public/templates/brembo-ale.png` / `brembo-ale-top.png`, plus a 2nd test set (P44028:
+  silver drilled rotor, red pads). Both sets tested in Chrome, look right.
 - Next: pick image API (waiting on client/Amir), provision the VPS and
   follow DEPLOY.md, real pad search.
 

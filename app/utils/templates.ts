@@ -28,14 +28,14 @@ function inPolygon(x: number, y: number, poly: [number, number][]) {
   return inside
 }
 
-const illustrationBadge: [number, number][] = [[0, 983], [17, 893], [372, 960], [338, 1131], [0, 1131]]
+const illustrationBadge: [number, number][] = [[0, 983], [17, 893], [372, 960], [338, 1130], [0, 1130]]
 
 export const templates: TemplateLayout[] = [
   {
     id: 'brembo-ale',
     name: 'Brembo + ALE — Disc Brake Pads & Rotors',
-    src: '/templates/brembo-ale.jpg',
-    overlay: '/templates/brembo-ale-top.jpg',
+    src: '/templates/brembo-ale.png',
+    overlay: '/templates/brembo-ale-top.png',
     store: 'AleAutoParts',
     size: 1350,
     rotorHeight: 760,
@@ -44,6 +44,6 @@ export const templates: TemplateLayout[] = [
     pads: [[685, 560], [985, 665], [685, 770], [985, 870]],
     // The overlay is on white: keep what is coloured plus the badge (its text is white). The
     // footer band is in the base and sits in front, so nothing below its top edge is kept.
-    keep: (x, y, r, g, b) => y < 1131 && (Math.min(r, g, b) < 230 || inPolygon(x, y, illustrationBadge))
+    keep: (x, y, r, g, b) => y < 1130 && (Math.min(r, g, b) < 230 || inPolygon(x, y, illustrationBadge))
   }
 ]
