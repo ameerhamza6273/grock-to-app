@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { zipSync } from 'fflate'
-import { composeListing, finalFilename, forgetTemplate, parsePhotoName, type PhotoKind } from '~/utils/compose'
-import { customTemplate, templates, type TemplateLayout } from '~/utils/templates'
+import { composeListing, finalFilename, forgetTemplate, parsePhotoName } from '~/utils/compose'
+import { customTemplate, kindLabels, templates, type PartKind, type TemplateLayout } from '~/utils/templates'
 
 // ---- Step 1: template ----
 // The user's own blank template, e.g. for another brand
@@ -22,7 +22,13 @@ const allTemplates = computed(() => (own.value ? [...templates, own.value] : tem
 const templateId = ref(templates[0]!.id)
 const layout = computed(() => allTemplates.value.find(t => t.id === templateId.value) ?? templates[0]!)
 const storeName = ref(layout.value.store)
-watch(layout, (t) => { if (t.store) storeName.value = t.store })
+watch(layout, (t) => {
+  if (t.store) storeName.value = t.store
+  syncListings()
+})
+const parts = computed(() => layout.value.parts)
+// Photo types the template needs, e.g. rotors + pads, or just one product
+const kinds = computed(() => [...new Set(parts.value.map(p => p.kind))])
 
 // ---- Step 2: photos ----
 // Photos are grouped by part number, so DF_61040036_Ang + DF_61040036_Fro are one rotor
@@ -30,13 +36,13 @@ interface Photo { id: number, file: File, url: string, key: string, part: string
 interface PartGroup { key: string, part: string, photos: Photo[], photo: Photo }
 
 let nextId = 1
-const photos = reactive<Record<PhotoKind, Photo[]>>({ rotor: [], pad: [] })
+const photos = reactive<Record<PartKind, Photo[]>>({ rotor: [], pad: [], item: [] })
 // Part numbers typed by the user, by group key
 const partEdits = reactive<Record<string, string>>({})
 // Which photo of a group is used, by group key (defaults to the angled shot for rotors)
 const photoPick = reactive<Record<string, number>>({})
 
-function addPhotos(kind: PhotoKind, files: File[]) {
+function addPhotos(kind: PartKind, files: File[]) {
   for (const file of files) {
     const { part, view } = parsePhotoName(file.name)
     const key = `${kind}:${(part || file.name).toUpperCase()}`
@@ -46,7 +52,7 @@ function addPhotos(kind: PhotoKind, files: File[]) {
   syncListings()
 }
 
-function removeGroup(kind: PhotoKind, key: string) {
+function removeGroup(kind: PartKind, key: string) {
   photos[kind] = photos[kind].filter((p) => {
     if (p.key === key) URL.revokeObjectURL(p.url)
     return p.key !== key
@@ -57,12 +63,12 @@ function removeGroup(kind: PhotoKind, key: string) {
 }
 
 onBeforeUnmount(() => {
-  for (const p of [...photos.rotor, ...photos.pad]) URL.revokeObjectURL(p.url)
+  for (const p of Object.values(photos).flat()) URL.revokeObjectURL(p.url)
   if (ownBase.value) URL.revokeObjectURL(ownBase.value.url)
   clearResults()
 })
 
-function groupsOf(kind: PhotoKind): PartGroup[] {
+function groupsOf(kind: PartKind): PartGroup[] {
   const map = new Map<string, Photo[]>()
   for (const p of photos[kind]) map.set(p.key, [...(map.get(p.key) ?? []), p])
   return [...map].map(([key, list]) => {
@@ -72,42 +78,44 @@ function groupsOf(kind: PhotoKind): PartGroup[] {
     return { key, part: partEdits[key] ?? list[0]!.part, photos: list, photo: picked }
   })
 }
-const rotors = computed(() => groupsOf('rotor'))
-const pads = computed(() => groupsOf('pad'))
-const groupByKey = computed(() => new Map([...rotors.value, ...pads.value].map(g => [g.key, g])))
+const groups = computed(() => Object.fromEntries((Object.keys(photos) as PartKind[]).map(k => [k, groupsOf(k)])) as Record<PartKind, PartGroup[]>)
+const groupByKey = computed(() => new Map(Object.values(groups.value).flat().map(g => [g.key, g])))
 
-// ---- Step 3: listings (one rotor + one pad set = one final image) ----
-interface Listing { id: number, rotor: string, pad: string }
+// ---- Step 3: listings (one photo per template slot = one final image) ----
+// `picks[i]` is the group key used for `parts[i]`
+interface Listing { id: number, picks: string[] }
 const listings = ref<Listing[]>([])
 
 // New photos fill empty slots in order, adding listings as needed; removed photos free their slot
 function syncListings() {
   const keys = groupByKey.value
-  for (const l of listings.value) {
-    if (!keys.has(l.rotor)) l.rotor = ''
-    if (!keys.has(l.pad)) l.pad = ''
-  }
-  for (const kind of ['rotor', 'pad'] as const) {
-    const used = new Set(listings.value.map(l => l[kind]))
-    const fresh = (kind === 'rotor' ? rotors.value : pads.value).filter(g => !used.has(g.key))
-    for (const g of fresh) {
-      const slot = listings.value.find(l => !l[kind])
-      if (slot) slot[kind] = g.key
-      else listings.value.push({ id: nextId++, rotor: kind === 'rotor' ? g.key : '', pad: kind === 'pad' ? g.key : '' })
+  const slots = parts.value
+  const fits = (key: string | undefined, i: number) => !!key && keys.has(key) && key.startsWith(`${slots[i]!.kind}:`)
+  for (const l of listings.value) l.picks = slots.map((_, i) => (fits(l.picks[i], i) ? l.picks[i]! : ''))
+  for (const kind of kinds.value) {
+    const used = new Set(listings.value.flatMap(l => l.picks))
+    const emptySlot = (l: Listing) => slots.findIndex((p, i) => p.kind === kind && !l.picks[i])
+    for (const g of groups.value[kind].filter(g => !used.has(g.key))) {
+      let l = listings.value.find(l => emptySlot(l) >= 0)
+      if (!l) {
+        listings.value.push({ id: nextId++, picks: slots.map(() => '') })
+        l = listings.value[listings.value.length - 1]!
+      }
+      l.picks[emptySlot(l)] = g.key
     }
   }
-  listings.value = listings.value.filter(l => l.rotor || l.pad)
+  listings.value = listings.value.filter(l => l.picks.some(Boolean))
 }
 
 function addListing() {
-  listings.value.push({ id: nextId++, rotor: rotors.value[0]?.key ?? '', pad: pads.value[0]?.key ?? '' })
+  listings.value.push({ id: nextId++, picks: parts.value.map(p => groups.value[p.kind][0]?.key ?? '') })
 }
 
 function filenameFor(l: Listing) {
-  return finalFilename(storeName.value, groupByKey.value.get(l.rotor)?.part ?? '', groupByKey.value.get(l.pad)?.part ?? '')
+  return finalFilename(storeName.value, parts.value.map((p, i) => ({ part: groupByKey.value.get(l.picks[i]!)?.part ?? '', fallback: p.label })))
 }
 
-const ready = computed(() => listings.value.filter(l => l.rotor && l.pad))
+const ready = computed(() => listings.value.filter(l => l.picks.length === parts.value.length && l.picks.every(Boolean)))
 
 // ---- Step 4: generate ----
 interface Result { id: number, filename: string, url: string, blob: Blob }
@@ -131,11 +139,11 @@ async function generateAll() {
   for (const [i, l] of todo.entries()) {
     progress.value = `Creating image ${i + 1} of ${todo.length}…`
     let filename = filenameFor(l)
-    // Same rotor + pad twice would overwrite each other in the ZIP
+    // The same parts twice would overwrite each other in the ZIP
     for (let n = 2; names.has(filename); n++) filename = filenameFor(l).replace(/_Final\.jpg$/, `_Final_${n}.jpg`)
     names.add(filename)
     try {
-      const blob = await composeListing(layout.value, groupByKey.value.get(l.rotor)!.photo.file, groupByKey.value.get(l.pad)!.photo.file)
+      const blob = await composeListing(layout.value, l.picks.map(k => groupByKey.value.get(k)!.photo.file))
       results.value.push({ id: l.id, filename, url: URL.createObjectURL(blob), blob })
     } catch (e) {
       failures.value.push(`${filename}: ${(e as Error).message || 'could not read one of the photos.'}`)
@@ -175,7 +183,7 @@ async function downloadZip() {
       <!-- STEP 1 -->
       <section class="card">
         <h2><span class="step">1</span> Template</h2>
-        <p class="muted">Branding, logos, hardware, text and layout stay exactly as in the template — only the rotors and pads are swapped.</p>
+        <p class="muted">Branding, logos, hardware, text and layout stay exactly as in the template — only the product photos are swapped in.</p>
 
         <div class="tpl-grid">
           <button
@@ -216,11 +224,11 @@ async function downloadZip() {
         <p class="muted">Drop all photos for the batch at once. Part numbers are read from file names like <code>DF_61040036_Ang.jpg</code> — check them below.</p>
 
         <div class="grid-2">
-          <div v-for="kind in (['rotor', 'pad'] as const)" :key="kind" class="stack-sm">
-            <h3>{{ kind === 'rotor' ? 'Rotors' : 'Brake pads' }}</h3>
-            <PhotoDrop :label="kind === 'rotor' ? 'Drop rotor photos here, or click to browse' : 'Drop pad photos here, or click to browse'" @add="addPhotos(kind, $event)" />
+          <div v-for="kind in kinds" :key="kind" class="stack-sm">
+            <h3>{{ kindLabels[kind].many }}</h3>
+            <PhotoDrop :label="`Drop ${kindLabels[kind].one} photos here, or click to browse`" @add="addPhotos(kind, $event)" />
 
-            <div v-for="g in (kind === 'rotor' ? rotors : pads)" :key="g.key" class="part">
+            <div v-for="g in groups[kind]" :key="g.key" class="part">
               <img :src="g.photo.url" :alt="g.part">
               <div class="part-body">
                 <label class="field">
@@ -250,23 +258,19 @@ async function downloadZip() {
       <!-- STEP 3 -->
       <section class="card">
         <h2><span class="step">3</span> Listings</h2>
-        <p class="muted">One image per listing. Rotors and pads are paired in the order they were added — change any pair here.</p>
+        <p class="muted">One image per listing. Photos are paired in the order they were added — change any of them here.</p>
 
         <p v-if="!listings.length" class="small muted">Add photos above to start.</p>
-        <div v-for="(l, i) in listings" :key="l.id" class="listing">
+        <div v-for="(l, i) in listings" :key="l.id" class="listing" :style="{ '--slots': parts.length }">
           <span class="listing-no">{{ i + 1 }}</span>
-          <select v-model="l.rotor" aria-label="Rotor">
-            <option value="">— rotor —</option>
-            <option v-for="g in rotors" :key="g.key" :value="g.key">{{ g.part || g.photo.file.name }}</option>
-          </select>
-          <select v-model="l.pad" aria-label="Brake pads">
-            <option value="">— pads —</option>
-            <option v-for="g in pads" :key="g.key" :value="g.key">{{ g.part || g.photo.file.name }}</option>
+          <select v-for="(p, j) in parts" :key="j" v-model="l.picks[j]" :aria-label="p.label">
+            <option value="">— {{ p.label.toLowerCase() }} —</option>
+            <option v-for="g in groups[p.kind]" :key="g.key" :value="g.key">{{ g.part || g.photo.file.name }}</option>
           </select>
           <code class="listing-file">{{ filenameFor(l) }}</code>
           <button type="button" class="btn-text danger" @click="listings.splice(i, 1)">Remove</button>
         </div>
-        <div v-if="rotors.length && pads.length">
+        <div v-if="parts.every(p => groups[p.kind].length)">
           <button type="button" class="btn-text" @click="addListing">+ Add listing</button>
         </div>
       </section>
@@ -278,7 +282,7 @@ async function downloadZip() {
         <button type="button" class="btn-primary" :disabled="!ready.length || generating" @click="generateAll">
           {{ generating ? 'Working…' : `Create ${ready.length || ''} image${ready.length === 1 ? '' : 's'}` }}
         </button>
-        <p v-if="!ready.length && !generating" class="small muted center">Each listing needs a rotor and a pad photo.</p>
+        <p v-if="!ready.length && !generating" class="small muted center">Each listing needs {{ parts.map(p => `a ${p.label.toLowerCase()} photo`).join(' and ') }}.</p>
         <p v-if="progress" class="small center">{{ progress }}</p>
         <p v-for="f in failures" :key="f" class="alert">{{ f }}</p>
 

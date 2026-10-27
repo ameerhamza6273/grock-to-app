@@ -145,6 +145,27 @@ Key files in that package:
 - 2026-10-21: user decided we don't hand-build a template per brand. Step 1 now has "Use your own
   template": user uploads one blank background (no top banner, user's call); products go in the
   same slots as Brembo (`productSlots` in templates.ts), drawn on top of everything. Tested in Chrome.
+- 2026-10-21: client tested "own template" with a Garnius template: products overlapped its title (fixed
+  Brembo slots don't fit other layouts) and pads showed as 8 (pad photo had 2 pads touching, so the
+  `firstPiece` split in `cutout()` failed). Client asked for kits with **Qty Needed** per part
+  (Rotors ×2, Pads ×1, Sensors ×2…) printed on the image, bundles like Front+Rear pads, Pads+Rotors,
+  Pads+Sensors (sent Canva screenshot of 4 bundle designs). Offered 2 options; **client chose Option 1**:
+  we hand-build each bundle template (blank base + top layer + finished example + parts/qty list from
+  client). Client rule: **pad photos are always a full set of 4 — place as-is, never duplicate**.
+  Reply asking for those files drafted (user sends). Nothing built yet — user said wait.
+  TODO when resumed (can start before files arrive): (1) pad photo drawn once, fitted in a box, drop
+  `firstPiece`; (2) per-template parts list (type, qty, slot) instead of fixed rotor+pad; (3) page asks
+  for each template's parts, filename includes all part numbers; (4) "Qty Needed" text on image
+  (position set per template once files arrive). Then ~30 min per template to measure/add.
+- 2026-10-23: client dropped "define all templates upfront": now **one template at a time, as needed**.
+  Done (tested locally in Chrome, not committed/deployed yet): templates are now a `parts` list
+  (`PartSlot`: kind rotor/pad/item, label, placements, shadow) in `templates.ts`; listings pick one
+  photo per slot; filename = store + every part number in slot order. Pad photo drawn once, fitted in
+  a box (`firstPiece` split removed): fixes the "duplicated pads" bug. Added **Garnius — Single item**
+  (`public/templates/garnius.jpg`, 1600px WhatsApp JPEG; ask for the original PNG): one product
+  fitted in the white area. Next template: **Brembo/ALE Front & Rear Disc Brake Pads** (example has 2 pad
+  boxes, front + rear pad sets, hardware clips, 4 grease tubes). Client's files are only 660px
+  WhatsApp images, so we asked for the Canva PNGs + sample photos. Slots will be front pad + rear pad.
 - Next: pick image API (waiting on client/Amir), provision the VPS and
   follow DEPLOY.md, real pad search.
 

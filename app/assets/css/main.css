@@ -149,10 +149,10 @@ select {
 .view.active { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
 
 /* Listings */
-.listing { display: grid; grid-template-columns: auto 1fr 1fr auto; gap: .5rem .75rem; align-items: center; }
+.listing { display: grid; grid-template-columns: auto repeat(var(--slots, 2), 1fr) auto; gap: .5rem .75rem; align-items: center; }
 .listing-no { color: var(--muted); font-size: .85rem; min-width: 1.2rem; }
-.listing-file { grid-column: 2 / 4; font-size: .8rem; word-break: break-all; justify-self: start; }
-.listing .btn-text { grid-row: 1; grid-column: 4; }
+.listing-file { grid-column: 2 / -2; font-size: .8rem; word-break: break-all; justify-self: start; }
+.listing .btn-text { grid-row: 1; grid-column: -2; }
 
 /* Results */
 .results { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }

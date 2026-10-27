@@ -1,8 +1,6 @@
 // Builds the final listing image in the browser: no server and no AI, so every image is free
 // and the template's branding is copied pixel for pixel.
-import type { TemplateLayout } from './templates'
-
-export type PhotoKind = 'rotor' | 'pad'
+import type { Placement, TemplateLayout } from './templates'
 
 // Supplier file names look like DF_61040036_Ang.jpg / BR_P09004N_Bac.jpg
 export function parsePhotoName(name: string) {
@@ -12,12 +10,11 @@ export function parsePhotoName(name: string) {
   return { part, view }
 }
 
-// Mirrors make_final_filename() in backend/app/services.py
-export function finalFilename(store: string, rotorPart: string, padPart: string) {
+// {Store}_{Part}_{Part}…_Final.jpg, like make_final_filename() in backend/app/services.py
+export function finalFilename(store: string, parts: { part: string, fallback: string }[]) {
   const s = store.replace(/[^A-Za-z0-9_-]/g, '') || 'Store'
-  const r = rotorPart.replace(/[^A-Za-z0-9]/g, '') || 'ROTOR'
-  const p = padPart.replace(/[^A-Za-z0-9]/g, '') || 'PAD'
-  return `${s}_${r}_${p}_Final.jpg`
+  const p = parts.map(x => x.part.replace(/[^A-Za-z0-9]/g, '') || x.fallback.toUpperCase())
+  return `${[s, ...p].join('_')}_Final.jpg`
 }
 
 function canvas(w: number, h: number) {
@@ -74,9 +71,8 @@ export function forgetTemplate(id: string) {
   prepared.delete(id)
 }
 
-// Makes the white studio background transparent and crops to the product.
-// `firstPiece` keeps only the top-left item, for pad photos that show a 2x2 set.
-async function cutout(file: Blob, firstPiece: boolean) {
+// Makes the white studio background transparent and crops to the product(s)
+async function cutout(file: Blob) {
   const img = await loadImage(file)
   const c = canvas(img.width, img.height)
   const ctx = context(c)
@@ -94,60 +90,71 @@ async function cutout(file: Blob, firstPiece: boolean) {
   ctx.putImageData(data, 0, 0)
 
   const opaque = (x: number, y: number) => d[(y * c.width + x) * 4 + 3]! > 20
-  // First run of occupied columns/rows; a split needs a clear gap, so specks don't count
-  const firstRun = (n: number, filled: (k: number) => boolean) => {
-    const gap = Math.max(4, Math.round(n * 0.01))
-    let start = -1, end = -1, empty = 0
+  // First and last occupied column/row; a line needs a few pixels, so specks don't count
+  const span = (n: number, filled: (k: number) => boolean) => {
+    let start = -1, end = -1
     for (let k = 0; k < n; k++) {
-      if (filled(k)) {
-        if (start < 0) start = k
-        end = k
-        empty = 0
-      } else if (start >= 0 && firstPiece && ++empty >= gap) break
+      if (!filled(k)) continue
+      if (start < 0) start = k
+      end = k
     }
     return [start, end] as const
   }
   const countCol = (x: number, y0: number, y1: number) => { let n = 0; for (let y = y0; y <= y1; y++) if (opaque(x, y)) n++; return n }
   const countRow = (y: number, x0: number, x1: number) => { let n = 0; for (let x = x0; x <= x1; x++) if (opaque(x, y)) n++; return n }
 
-  const [x0, x1] = firstRun(c.width, x => countCol(x, 0, c.height - 1) > 2)
+  const [x0, x1] = span(c.width, x => countCol(x, 0, c.height - 1) > 2)
   if (x0 < 0) throw new Error('The photo looks empty (only white background).')
-  const [y0, y1] = firstRun(c.height, y => countRow(y, x0, x1) > 2)
+  const [y0, y1] = span(c.height, y => countRow(y, x0, x1) > 2)
   const out = canvas(x1 - x0 + 1, y1 - y0 + 1)
   out.getContext('2d')!.drawImage(c, x0, y0, out.width, out.height, 0, 0, out.width, out.height)
   return out
 }
 
-export async function composeListing(layout: TemplateLayout, rotorPhoto: Blob, padPhoto: Blob) {
-  const [tpl, rotor, pad] = await Promise.all([prepareTemplate(layout), cutout(rotorPhoto, false), cutout(padPhoto, true)])
+function place(ctx: CanvasRenderingContext2D, img: HTMLCanvasElement, at: Placement, s: number) {
+  let h = at.h * s
+  let w = h * img.width / img.height
+  let x = at.x * s
+  let y = at.y * s
+  if (at.w) {
+    const box = at.w * s
+    if (w > box) {
+      w = box
+      h = w * img.height / img.width
+    }
+    x += (box - w) / 2
+    y += (at.h * s - h) / 2
+  }
+  ctx.save()
+  if (at.flip) {
+    ctx.translate(x + w, y)
+    ctx.scale(-1, 1)
+    ctx.drawImage(img, 0, 0, w, h)
+  } else {
+    ctx.drawImage(img, x, y, w, h)
+  }
+  ctx.restore()
+}
+
+// `photos` has one photo per slot in `layout.parts`, in the same order
+export async function composeListing(layout: TemplateLayout, photos: Blob[]) {
+  const [tpl, ...cutouts] = await Promise.all([prepareTemplate(layout), ...photos.map(cutout)])
   const s = tpl.width / layout.size
   const out = canvas(tpl.width, tpl.height)
   const ctx = out.getContext('2d')!
   ctx.drawImage(tpl.base, 0, 0)
 
-  const rh = layout.rotorHeight * s
-  const rw = rh * rotor.width / rotor.height
-  for (const r of layout.rotors) {
+  for (const [i, slot] of layout.parts.entries()) {
     ctx.save()
-    if (r.flip) {
-      ctx.translate(r.x * s + rw, r.y * s)
-      ctx.scale(-1, 1)
-      ctx.drawImage(rotor, 0, 0, rw, rh)
-    } else {
-      ctx.drawImage(rotor, r.x * s, r.y * s, rw, rh)
+    if (slot.shadow) {
+      ctx.shadowColor = 'rgba(0, 0, 0, .35)'
+      ctx.shadowBlur = 12 * s
+      ctx.shadowOffsetX = 6 * s
+      ctx.shadowOffsetY = 10 * s
     }
+    for (const at of slot.at) place(ctx, cutouts[i]!, at, s)
     ctx.restore()
   }
-
-  const pw = layout.padWidth * s
-  const ph = pw * pad.height / pad.width
-  ctx.save()
-  ctx.shadowColor = 'rgba(0, 0, 0, .35)'
-  ctx.shadowBlur = 12 * s
-  ctx.shadowOffsetX = 6 * s
-  ctx.shadowOffsetY = 10 * s
-  for (const [x, y] of layout.pads) ctx.drawImage(pad, x * s, y * s, pw, ph)
-  ctx.restore()
 
   ctx.drawImage(tpl.overlay, 0, 0)
 
