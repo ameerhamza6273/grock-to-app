@@ -73,10 +73,13 @@ export const templates: TemplateLayout[] = [
     id: 'garnius-single',
     name: 'Garnius — Single item',
     src: '/templates/garnius.jpg',
+    overlay: '/templates/garnius.jpg',
     store: 'Garnius',
     size: 1600,
-    // The white area between the banner/badge and the footer line
-    parts: [{ kind: 'item', label: 'Product', at: [{ x: 100, y: 600, w: 1400, h: 870 }], shadow: true }]
+    // Centred in the white area between the banner and the footer line
+    parts: [{ kind: 'item', label: 'Product', at: [{ x: 100, y: 500, w: 1400, h: 870 }], shadow: true }],
+    // The round badge stays in front of wide products
+    keep: (x, y) => Math.hypot(x - 1428, y - 422) < 151
   }
 ]
 
